@@ -5,9 +5,10 @@ Domains supplied should be first-level domains without protocol, sub-domain
 and path(e.g. amazon.co.uk). Setting output to true will write the html content
 of a scrape to html_outputs. 30 seconds must be left between each scrape attempt.
 '''
-import os, requests, time, json
+import os, requests, time, json, random
 from datetime import date
 from bs4 import BeautifulSoup
+from tld import get_fld
 
 
 def output_html(soup):
@@ -71,7 +72,15 @@ def get_page(domain):
     return (r.status_code, r.content)
 
 
-def get_scores(domain, output=False, json=False):
+def convert_to_fld(url):
+    '''Converts url to first-level domain (fld)'''
+    try:
+        return get_fld(url)
+    except:
+        print('{} is an invalid url'.format(url))
+
+
+def get_scores(domain, output=False, json=False, fld=False):
     '''
     Parses the HTML from checkpagerank.net with the domain query and extracts the different scores
 
@@ -79,6 +88,7 @@ def get_scores(domain, output=False, json=False):
             domain (str): web-domain and top-level domain(s) e.g. amazon.co.uk
             output (bool, optional): Outputs the html content to an html file
             json (bool, optional): Outputs scraped scores to json file
+            fld (bool, optional): Coverts provided URL to fld if not already 
 
         Returns:
             scores (dict): Data scraped from checkpagerank.net
@@ -113,7 +123,68 @@ def get_scores(domain, output=False, json=False):
     if json:
         output_json(scores)
 
-    return(scores)
+    return scores
+
+
+def create_batch(urls, fld=False):
+
+    # Converts urls to fld format and removes invalid urls
+    if fld:
+        urls = [convert_to_fld(url) for url in urls]
+        
+    # Removed any duplicate flds to save on batch time
+    urls = list(set(urls))
+    # Predetermines delays to give more accurate minimum time remaining
+    delays = [random.randrange(24, 60, 1) for i in range(len(urls) - 1)]
+    print(delays)
+
+    results_arr = []
+
+    print('Estimated minimum runtime: {}'.format(sum(delays)))
+    while urls:
+        start_time = time.time()
+        try:
+            results_arr.append(get_scores(urls.pop(0)))
+        except:
+            print("SHIT")
+
+        if delays:
+            response_time = time.time() - start_time
+        else:
+            break
+
+    return results_arr
+
+
+# TODO - make Batch async to handle each request after specified delay
+class Batch:
+    def __init__(self, urls):
+        self.urls = urls
+        self.fixed_delay = False
+
+    def format_urls(self):
+        '''Reformat URLs in first-level (fld) domain format'''
+        self.urls = [convert_to_fld(url) for url in urls]
+
+    def set_fixed_delay(self, delay):
+        '''Force each request to be made after a set delay'''
+        self.fixed_delay = delay
+
+    def process(self):
+        '''Scrapes scores for each unique fld in the list provided.
+        WARNING: Will take 30s+ for each URL as checkpagerank has a request limit
+        '''
+        # Removes duplicate URLs
+        self.urls = list(set(self.urls))
+
+        if not self.fixed_delay:
+            delays = [random.randrange(24, 60, 1) for i in range(len(urls) - 1)]
+        else:
+            delays = [self.fixed_delay for i in range(len(urls) - 1)]
+
+        print('Estimated Runtime: {}'.format(sum(delays)))
+
+    
 
 
 if __name__ == '__main__':
@@ -128,3 +199,6 @@ if __name__ == '__main__':
 
     except RuntimeError as e:
         print(e)
+
+    urls = ['amazon.co.uk', 'wikipedia.org', 'google.com']
+    print(create_batch(urls))
