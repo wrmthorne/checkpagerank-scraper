@@ -5,8 +5,7 @@ Domains supplied should be first-level domains without protocol, sub-domain
 and path(e.g. amazon.co.uk). Setting output to true will write the html content
 of a scrape to html_outputs. 30 seconds must be left between each scrape attempt.
 '''
-import os, requests, time, json, random
-from datetime import date
+import os, requests, time, json, random, asyncio, datetime
 from bs4 import BeautifulSoup
 from tld import get_fld
 
@@ -156,11 +155,12 @@ def create_batch(urls, fld=False):
     return results_arr
 
 
-# TODO - make Batch async to handle each request after specified delay
 class Batch:
     def __init__(self, urls):
         self.urls = urls
         self.fixed_delay = False
+        self.__failures = []
+        self.__successes = []
 
     def format_urls(self):
         '''Reformat URLs in first-level (fld) domain format'''
@@ -170,26 +170,52 @@ class Batch:
         '''Force each request to be made after a set delay'''
         self.fixed_delay = delay
 
-    def process(self):
-        '''Scrapes scores for each unique fld in the list provided.
-        WARNING: Will take 30s+ for each URL as checkpagerank has a request limit
+    async def __make_request(self, url):
+        '''Async function to make scrape call for a url'''
+        try:
+            print('Starting: {}'.format(url))
+            start = time.time()
+            scores = get_scores(url)
+            print('SUCCESS: {} ({}s)'.format(url, time.time() - start))
+            return scores
+
+        except ValueError as e:
+            print('FAILURE: {} ({})'.format(url, e))
+            
+        except RuntimeError as e:
+            print('FAILURE: {} ({})'.format(url, e))
+
+        self.__failures.append(url)
+
+    async def process(self):
+        '''Async function to process all the urls in the batch
         '''
         # Removes duplicate URLs
         self.urls = list(set(self.urls))
 
         if not self.fixed_delay:
-            delays = [random.randrange(24, 60, 1) for i in range(len(urls) - 1)]
+            delays = [random.randrange(30, 60, 1) for i in range(len(urls) - 1)]
         else:
             delays = [self.fixed_delay for i in range(len(urls) - 1)]
 
-        print('Estimated Runtime: {}'.format(sum(delays)))
+        print('Estimated Runtime: {}'.format(datetime.timedelta(seconds=sum(delays))))
+        processed = 0
+        while urls:
+            processed += 1
+            if processed % 5 == 0:
+                print('Estimated time remaining: {}'.format(datetime.timedelta(seconds=sum(delays)))) 
 
-    
+            self.__successes.append(await self.__make_request(urls.pop(0)))
+            if delays:
+                time.sleep(delays.pop(0))
+
+        print(self.__successes)
+
 
 
 if __name__ == '__main__':
     # Example usage
-    domain = 'amazon.co.uk'
+    '''domain = 'amazon.co.uk'
     try:
         scores = get_scores(domain, output=True, json=True)
         print(scores)
@@ -198,8 +224,12 @@ if __name__ == '__main__':
         print(e)
 
     except RuntimeError as e:
-        print(e)
+        print(e)'''
 
-    urls = ['amazon.co.uk', 'wikipedia.org', 'google.com']
-    print(create_batch(urls))
-    foo = loop.run_until_complete(a.get_ticks())
+    urls = ['amazon.co.uk', 'wikipedia.org'] #, 'google.com'
+
+    b = Batch(urls)
+
+    loop = asyncio.get_event_loop()
+    foo = loop.run_until_complete(b.process())
+    loop.close()
