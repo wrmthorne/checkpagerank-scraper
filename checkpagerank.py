@@ -23,9 +23,9 @@ def output_html(soup, path='.'):
         path = path.strip()[:-1]
 
     i = 1
-    while os.path.isfile('html_outputs/output_{}.html'.format(i)):
+    while os.path.isfile(f'html_outputs/output_{i}.html'):
         i += 1
-    filename = 'html_outputs/output_{}.html'.format(i)
+    filename = f'html_outputs/output_{i}.html'
 
     # Create directory if it doesnt exist and write to file
     os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -47,12 +47,12 @@ def output_json(scores, path='.'):
         path = path.strip()[:-1]
         
     if not os.path.isfile(f'{path}/json_outputs/{formatted_domain}.json'):
-        filename = 'json_outputs/{}.json'.format(formatted_domain)
+        filename = 'json_outputs/{formatted_domain}.json'
     else:
         i = 1
-        while os.path.isfile('json_outputs/{}_{}.json'.format(formatted_domain, i)):
+        while os.path.isfile(f'json_outputs/{formatted_domain}_{i}.json'):
             i += 1
-        filename = 'json_outputs/{}_{}.json'.format(formatted_domain, i)
+        filename = f'json_outputs/{formatted_domain}_{i}.json'
 
     # Create directory if it doesnt exist and write to file
     os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -106,7 +106,7 @@ def get_scores(domain, output=False, json=False, fld=False):
     '''
     status_code, content = get_page(domain)
     if not status_code == 200:
-        raise RuntimeError('Error while contacting checkpagerank.net: {}'.format(status_code))
+        raise RuntimeError(f'Error while contacting checkpagerank.net: {status_code}')
 
     soup = BeautifulSoup(content, 'html.parser')
     if (output):
@@ -185,21 +185,21 @@ class Batch:
     def __make_request(self, url):
         '''Handles a single batch process and sorts the results'''
         try:
-            print('Starting: {}'.format(url))
+            print(f'Starting: {url}')
             start = time.time()
             scores = get_scores(url)
-            print('SUCCESS: {} ({}s)'.format(url, time.time() - start))
+            print(f'SUCCESS: {url} ({time.time() - start}s)')
 
             self.successes.append(scores)
             if self.incremental_dump:
                 self.__dump_json(scores)
 
         except ValueError as e:
-            print('FAILURE: {} ({})'.format(url, e))
+            print(f'FAILURE: {url} ({e})')
             self.failures.append(url)
             
         except RuntimeError as e:
-            print('FAILURE: {} ({})'.format(url, e))
+            print(f'FAILURE: {url} ({e})')
             self.failures.append(url)
 
     def process(self):
@@ -208,26 +208,26 @@ class Batch:
             Returns:
                 results (dict): Results dict for urls, success, and failures
         '''
-        urls = self.urls # Create throwaway copy        
+        no_urls = len(self.urls) # Number of urls to process
         if not self.fixed_delay:
-            delays = [random.randrange(34, 60, 1) for i in range(len(urls) - 1)]
+            delays = [random.randrange(34, 60, 1) for i in range(len(self.urls) - 1)]
         else:
-            delays = [self.fixed_delay for i in range(len(urls) - 1)]
+            delays = [self.fixed_delay for i in range(len(self.urls) - 1)]
 
         batch_start = time.time()
         print('===================================')
         print(f'Starting batch: {len(self.urls)} items')
-        print('Estimated Runtime: {}'.format(datetime.timedelta(seconds=sum(delays) + 30)))
+        print(f'Estimated Runtime: {datetime.timedelta(seconds=sum(delays) + 30)}')
         print('===================================')
         threads = []
-        while urls:
-            url = urls.pop(0)
+        while self.urls:
+            url = self.urls.pop(0)
             t = threading.Thread(target=self.__make_request, args=(url,))
             threads.append(t)
 
         for i in range(len(threads)):
             if i % 5 == 0:
-                print('Estimated time remaining: {}'.format(datetime.timedelta(seconds=sum(delays) + 30)))
+                print(f'Estimated time remaining: {datetime.timedelta(seconds=sum(delays) + 30)}')
             threads[i].start()
             if delays:
                 time.sleep(delays.pop(0))
@@ -238,7 +238,7 @@ class Batch:
         batch_duration = datetime.timedelta(seconds=time.time() - batch_start)
         print('===================================')
         print(f'Batch Complete: {batch_duration}')
-        print(f'{len(urls)} Processed, {len(self.successes)} Successes, {len(self.failures)} Failures')
+        print(f'{no_urls} Processed, {len(self.successes)} Successes, {len(self.failures)} Failures')
         print('===================================')
 
         return {'urls': self.urls, 'success': self.successes, 'failure': self.failures}
