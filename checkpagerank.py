@@ -5,19 +5,23 @@ Domains supplied should be first-level domains without protocol, sub-domain
 and path(e.g. amazon.co.uk). Setting output to true will write the html content
 of a scrape to html_outputs. 30 seconds must be left between each scrape attempt.
 '''
-import os, requests, time, json, random, asyncio, datetime
+import os, requests, time, json, random, asyncio, datetime, threading
 from bs4 import BeautifulSoup
 from tld import get_fld
 
 
-def output_html(soup):
+def output_html(soup, path='.'):
     '''
     Outputs soup contents to html file in 'html_outputs' directory
 
         Parameters:
             soup (bytes): soup object as output from BeautifulSoup to write to file
+            path (str, optional): path of where to create/use the html_outputs directory
     '''
     # Check to see which indices of file exist and add new increment
+    if path.strip().endswith('/'):
+        path = path.strip()[:-1]
+
     i = 1
     while os.path.isfile('html_outputs/output_{}.html'.format(i)):
         i += 1
@@ -29,16 +33,20 @@ def output_html(soup):
         f.write(str(soup))
 
 
-def output_json(scores):
+def output_json(scores, path='.'):
     '''
     Outputs scraped scores to json file in 'json_outputs' directory
 
         Parameters:
             scores (dict): dict of scraped scores
+            path (str, optional): path of where to create/use the json_outputs directory
     '''
     # Check to see whether a version of the file exists and increment if it does
-    formatted_domain = scores['domain'].split('.')[0] # Gets just domain without tld
-    if not os.path.isfile('json_outputs/{}.json'.format(formatted_domain)):
+    formatted_domain = scores['domain'].strip().split('.')[0] # Gets just domain without tld
+    if path.strip().endswith('/'):
+        path = path.strip()[:-1]
+        
+    if not os.path.isfile(f'{path}/json_outputs/{formatted_domain}.json'):
         filename = 'json_outputs/{}.json'.format(formatted_domain)
     else:
         i = 1
@@ -125,92 +133,114 @@ def get_scores(domain, output=False, json=False, fld=False):
     return scores
 
 
-def create_batch(urls, fld=False):
-
-    # Converts urls to fld format and removes invalid urls
-    if fld:
-        urls = [convert_to_fld(url) for url in urls]
-        
-    # Removed any duplicate flds to save on batch time
-    urls = list(set(urls))
-    # Predetermines delays to give more accurate minimum time remaining
-    delays = [random.randrange(24, 60, 1) for i in range(len(urls) - 1)]
-    print(delays)
-
-    results_arr = []
-
-    print('Estimated minimum runtime: {}'.format(sum(delays)))
-    while urls:
-        start_time = time.time()
-        try:
-            results_arr.append(get_scores(urls.pop(0)))
-        except:
-            print("SHIT")
-
-        if delays:
-            response_time = time.time() - start_time
-        else:
-            break
-
-    return results_arr
-
-
 class Batch:
-    def __init__(self, urls):
-        self.urls = urls
-        self.fixed_delay = False
-        self.__failures = []
-        self.__successes = []
+    def __init__(self, urls: [str], fixed_delay=False, fld=False, incremental_dump=False):
+        self.urls = list(set(urls)) # Remove duplicates
+        if fld:
+            self.format_urls()
+
+        if fixed_delay < 30:
+            raise ValueError('Delay must be more than 30 seconds')
+        else:
+            self.fixed_delay = fixed_delay
+        
+        self.incremental_dump = incremental_dump
+        self.failures = []
+        self.successes = []
 
     def format_urls(self):
         '''Reformat URLs in first-level (fld) domain format'''
-        self.urls = [convert_to_fld(url) for url in urls]
+        self.urls = list(set([convert_to_fld(url) for url in urls]))
 
-    def set_fixed_delay(self, delay):
+    def set_fixed_delay(self, delay: int):
         '''Force each request to be made after a set delay'''
-        self.fixed_delay = delay
+        if delay < 30:
+            raise ValueError('Delay must be more than 30 seconds')
+        self.fixed_delay = int(delay)
 
-    async def __make_request(self, url):
-        '''Async function to make scrape call for a url'''
+    def toggle_incremental_dump(self):
+        '''Toggles whether the class should dump scraped results as they are collected'''
+        self.incremental_dump = not self.incremental_dump
+
+    def json_output(self):
+        '''Writes all successes to json'''
+        [self.__dump_json(s) for s in self.successes]
+
+    def __dump_json(self, scores, path='./json_outputs'):
+        '''Writes scores to JSON files in a batch directory'''
+        name = scores['domain']
+        if path.strip().endswith('/'):
+            path = path.strip()[:-1]
+            
+        i = 1
+        while os.path.isfile(f'{path}/batch_{i}/{name}.json'):
+            i += 1
+        filename = f'{path}/batch_{i}/{name}.json'
+
+        # Create directory if it doesnt exist and write to file
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, 'w+') as f:
+            json.dump(scores, f)
+
+    def __make_request(self, url):
+        '''Handles a single batch process and sorts the results'''
         try:
             print('Starting: {}'.format(url))
             start = time.time()
             scores = get_scores(url)
             print('SUCCESS: {} ({}s)'.format(url, time.time() - start))
-            return scores
+
+            self.successes.append(scores)
+            if self.incremental_dump:
+                self.__dump_json(scores)
 
         except ValueError as e:
             print('FAILURE: {} ({})'.format(url, e))
+            self.failures.append(url)
             
         except RuntimeError as e:
             print('FAILURE: {} ({})'.format(url, e))
+            self.failures.append(url)
 
-        self.__failures.append(url)
+    def process(self):
+        '''Handles the processing of each item in the batch.
 
-    async def process(self):
-        '''Async function to process all the urls in the batch
-        '''
-        # Removes duplicate URLs
-        self.urls = list(set(self.urls))
-
+            Returns:
+                results (dict): Results dict for urls, success, and failures
+        '''        
         if not self.fixed_delay:
-            delays = [random.randrange(30, 60, 1) for i in range(len(urls) - 1)]
+            delays = [random.randrange(33, 60, 1) for i in range(len(urls) - 1)]
         else:
             delays = [self.fixed_delay for i in range(len(urls) - 1)]
 
-        print('Estimated Runtime: {}'.format(datetime.timedelta(seconds=sum(delays))))
-        processed = 0
+        batch_start = time.time()
+        print('===================================')
+        print(f'Starting batch: {len(self.urls)} items')
+        print('Estimated Runtime: {}'.format(datetime.timedelta(seconds=sum(delays) + 30)))
+        print('===================================')
+        threads = []
         while urls:
-            processed += 1
-            if processed % 5 == 0:
-                print('Estimated time remaining: {}'.format(datetime.timedelta(seconds=sum(delays)))) 
+            url = urls.pop(0)
+            t = threading.Thread(target=self.__make_request, args=(url,))
+            threads.append(t)
 
-            self.__successes.append(await self.__make_request(urls.pop(0)))
+        for i in range(len(threads)):
+            if i % 5 == 0:
+                print('Estimated time remaining: {}'.format(datetime.timedelta(seconds=sum(delays) + 30)))
+            threads[i].start()
             if delays:
                 time.sleep(delays.pop(0))
 
-        print(self.__successes)
+        # Ensures that all threads are complete
+        [thread.join() for thread in threads]
 
+        batch_duration = datetime.timedelta(seconds=time.time() - batch_start)
+        print('===================================')
+        print(f'Batch Complete: {batch_duration}')
+        print(f'{len(urls)} Processed, {len(self.successes)} Successes, {len(self.failures)} Failures')
+        print('===================================')
+
+        return {'urls': self.urls, 'success': self.successes, 'failure': self.failures}
 
 
 if __name__ == '__main__':
@@ -228,8 +258,5 @@ if __name__ == '__main__':
 
     urls = ['amazon.co.uk', 'wikipedia.org'] #, 'google.com'
 
-    b = Batch(urls)
-
-    loop = asyncio.get_event_loop()
-    foo = loop.run_until_complete(b.process())
-    loop.close()
+    b = Batch(urls, incremental_dump=True, fixed_delay=35)
+    print(b.process())
