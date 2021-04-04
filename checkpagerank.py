@@ -139,7 +139,7 @@ class Batch:
         if fld:
             self.format_urls()
 
-        if fixed_delay < 30:
+        if not fixed_delay == False and fixed_delay < 30:
             raise ValueError('Delay must be more than 30 seconds')
         else:
             self.fixed_delay = fixed_delay
@@ -150,7 +150,7 @@ class Batch:
 
     def format_urls(self):
         '''Reformat URLs in first-level (fld) domain format'''
-        self.urls = list(set([convert_to_fld(url) for url in urls]))
+        self.urls = list(set([convert_to_fld(url) for url in self.urls]))
 
     def set_fixed_delay(self, delay: int):
         '''Force each request to be made after a set delay'''
@@ -207,9 +207,10 @@ class Batch:
 
             Returns:
                 results (dict): Results dict for urls, success, and failures
-        '''        
+        '''
+        urls = self.urls # Create throwaway copy        
         if not self.fixed_delay:
-            delays = [random.randrange(33, 60, 1) for i in range(len(urls) - 1)]
+            delays = [random.randrange(34, 60, 1) for i in range(len(urls) - 1)]
         else:
             delays = [self.fixed_delay for i in range(len(urls) - 1)]
 
@@ -256,7 +257,7 @@ if __name__ == '__main__':
     except RuntimeError as e:
         print(e)'''
 
-    urls = ['amazon.co.uk', 'wikipedia.org'] #, 'google.com'
-
-    b = Batch(urls, incremental_dump=True, fixed_delay=35)
+    # Batch Processing
+    domains = ['amazon.co.uk', 'wikipedia.org', 'google.com'] 
+    b = Batch(domains, incremental_dump=True)
     print(b.process())
