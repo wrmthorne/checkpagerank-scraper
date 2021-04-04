@@ -202,3 +202,4 @@ if __name__ == '__main__':
 
     urls = ['amazon.co.uk', 'wikipedia.org', 'google.com']
     print(create_batch(urls))
+    foo = loop.run_until_complete(a.get_ticks())
