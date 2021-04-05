@@ -207,8 +207,14 @@ class Batch:
 
             Returns:
                 results (dict): Results dict for urls, success, and failures
+
+            Raises:
+                ValueError: No URLs to Process
         '''
         no_urls = len(self.urls) # Number of urls to process
+        if no_urls == 0:
+            raise ValueError("No URLs to Process")
+
         if not self.fixed_delay:
             delays = [random.randrange(34, 60, 1) for i in range(len(self.urls) - 1)]
         else:
