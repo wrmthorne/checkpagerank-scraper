@@ -81,6 +81,9 @@ def get_page(domain):
 
 def convert_to_fld(url):
     '''Converts url to first-level domain (fld)'''
+    # Checks to see if the url is already in fld format
+    if get_fld(f'https://{url}', fail_silently=True):
+        return url
     try:
         return get_fld(url)
     except:
@@ -135,6 +138,7 @@ def get_scores(domain, output=False, json=False, fld=False):
 
 class Batch:
     def __init__(self, urls: [str], fixed_delay=False, fld=False, incremental_dump=False):
+        print(f'Provided number of urls: {len(urls)}')
         self.urls = list(set(urls)) # Remove duplicates
         if fld:
             self.format_urls()
@@ -151,6 +155,7 @@ class Batch:
     def format_urls(self):
         '''Reformat URLs in first-level (fld) domain format'''
         self.urls = list(set([convert_to_fld(url) for url in self.urls]))
+        print(f'Formatted number of urls: {len(self.urls)}')
 
     def set_fixed_delay(self, delay: int):
         '''Force each request to be made after a set delay'''
@@ -182,7 +187,7 @@ class Batch:
         with open(filename, 'w+') as f:
             json.dump(scores, f)
 
-    def __make_request(self, url):
+    def __make_request(self, url: str):
         '''Handles a single batch process and sorts the results'''
         try:
             print(f'Starting: {url}')
