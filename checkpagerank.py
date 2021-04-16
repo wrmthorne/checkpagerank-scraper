@@ -42,7 +42,7 @@ def output_json(scores, path='.'):
             path (str, optional): path of where to create/use the json_outputs directory
     '''
     # Check to see whether a version of the file exists and increment if it does
-    formatted_domain = scores['domain'].strip().split('.')[0] # Gets just domain without tld
+    formatted_domain = scores['domain'].split('/')[0] # Gets just domain without tld
     if path.strip().endswith('/'):
         path = path.strip()[:-1]
         
@@ -149,6 +149,7 @@ class Batch:
             self.fixed_delay = fixed_delay
         
         self.incremental_dump = incremental_dump
+        self.__batch_number = -1
         self.failures = []
         self.successes = []
 
@@ -167,6 +168,12 @@ class Batch:
         '''Toggles whether the class should dump scraped results as they are collected'''
         self.incremental_dump = not self.incremental_dump
 
+    def __get_batch_number(self, path ='./json_outputs'):
+        i = 1
+        while os.path.isdir(f'{path}/batch_{i}'):
+            i += 1
+        self.__batch_number = i
+
     def json_output(self):
         '''Writes all successes to json'''
         [self.__dump_json(s) for s in self.successes]
@@ -174,13 +181,15 @@ class Batch:
     def __dump_json(self, scores, path='./json_outputs'):
         '''Writes scores to JSON files in a batch directory'''
         name = scores['domain']
+        name = name.split('/')[0]
+
         if path.strip().endswith('/'):
             path = path.strip()[:-1]
-            
-        i = 1
-        while os.path.isfile(f'{path}/batch_{i}/{name}.json'):
-            i += 1
-        filename = f'{path}/batch_{i}/{name}.json'
+
+        if self.__batch_number == -1:
+            self.__get_batch_number(path=path)
+
+        filename = f'{path}/batch_{self.__batch_number}/{name}.json'
 
         # Create directory if it doesnt exist and write to file
         os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -228,8 +237,7 @@ class Batch:
         batch_start = time.time()
         print('===================================')
         print(f'Starting batch: {len(self.urls)} items')
-        print(f'Estimated Runtime: {datetime.timedelta(seconds=sum(delays) + 30)}')
-        print('===================================')
+
         threads = []
         while self.urls:
             url = self.urls.pop(0)
@@ -237,8 +245,10 @@ class Batch:
             threads.append(t)
 
         for i in range(len(threads)):
-            if i % 5 == 0:
-                print(f'Estimated time remaining: {datetime.timedelta(seconds=sum(delays) + 30)}')
+            if (i % 5) + 1 == 0: # + 1 to stop it triggering on the first cycle
+                print('===================================')
+                print(f'Estimated time remaining: {datetime.timedelta(seconds=sum(delays) + 30)} ({no_urls - len(threads)}/{no_urls})')
+                print('===================================')
             threads[i].start()
             if delays:
                 time.sleep(delays.pop(0))
